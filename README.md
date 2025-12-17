@@ -2,89 +2,77 @@
 
 ## Overview
 
-This project implements a prototype **Context Layer** for intelligent routing of LLM inference requests. The Context Layer acts as a real-time intelligence service that aggregates system signals, reasons over historical and current state, and answers operational questions needed by a routing engine or LLM-based agent.
+This repository contains a working prototype of a **Context Layer** for intelligent routing of LLM inference requests. The Context Layer aggregates system signals (model snapshot + request history), maintains a time-aware view of state, and answers operational questions needed by a routing engine or LLM-based agent.
 
-The design prioritizes:
+The prototype supports natural-language questions such as:
 
-* **Time-aware reasoning** over model performance, traffic, and quality
-* **Deterministic filtering and scoring** before involving an LLM
-* **Fast, unified context access** via a single API endpoint
-* **Explainability**, with evidence-backed answers instead of opaque decisions
+* Which models are viable for this task and SLA?
+* Why did quality drop for a task on a given day?
+* What will traffic look like in the next hour?
 
-Rather than functioning as a CRUD service or metrics dashboard, the Context Layer is treated as a **queryable control-plane primitive** that supports routing decisions, investigations, and capacity awareness.
+The design emphasizes:
 
----
-
-## Approach
-
-### Unified Context Interface
-
-The system exposes a single API endpoint that accepts natural-language queries. These queries may relate to:
-
-* model or backend suitability for a request
-* historical quality regressions
-* near-term traffic patterns
-* fleet availability and constraints
-
-This makes the Context Layer easy to consume by:
-
-* a routing engine
-* an LLM-based agent
-* or a human operator
-
-All intelligence lives in the Context Engine; the API layer is intentionally thin.
+* **Deterministic filtering and scoring** before any LLM involvement
+* **Time-aware analysis** using historical request logs
+* **Unified agent-friendly API** via a single endpoint
+* **Evidence-backed explanations** (guardrails prevent hallucination)
 
 ---
 
-### Deterministic First, LLM Second
+## Repository Structure
 
-The system uses **deterministic logic** wherever correctness matters:
-
-* model viability checks (status, SLA, staleness, rate limits)
-* heuristic scoring
-* stratified Top-N candidate selection
-* historical aggregation and comparison
-
-LLMs are used only for:
-
-* classifying query intent
-* generating natural-language explanations from structured evidence
-
-Strict prompt guardrails ensure that responses do not speculate or hallucinate beyond the available data.
-
----
-
-### Time as a First-Class Dimension
-
-All analysis is anchored to an internally computed **system time**, derived from observed request logs. This allows the system to consistently answer questions such as:
-
-* “two days ago”
-* “last hour”
-* “recent trend vs baseline”
-
-Historical quality analysis compares windows against prior periods rather than relying on absolute thresholds.
+```
+Arcpoint/
+├── app/
+│   ├── main.py                    # FastAPI app entrypoint
+│   ├── api/
+│   │   └── routes.py              # POST /v1/context/query endpoint
+│   ├── services/
+│   │   └── context_engine.py       # Core logic: routing, quality analysis, forecasting
+│   └── data/
+│       ├── model_state.json        # Snapshot of model fleet state/metadata
+│       └── mock_requests.csv       # Generated request log
+├── generate_requests.py            # Generates synthetic request traffic
+├── requirements.txt               # Python dependencies
+├── .env.example                   # Environment variable template
+├── .gitignore                     # Prevents secrets / venv from being committed
+└── README.md
+```
 
 ---
 
-### Synthetic but Realistic Data
+## Setup
 
-The project includes a data generator that produces multi-day request logs with:
-
-* multiple user tiers and SLAs
-* diverse task types
-* latency and failure modeling
-* intentional quality degradation
-* traffic variability
-
-This enables meaningful demonstrations of routing trade-offs, quality drift, and forecasting behavior without relying on live infrastructure.
-
----
-
-## How to Run the Project
-
-### 1. Install Dependencies
+### 1. Create and Activate a Python Virtual Environment
 
 From the project root:
+
+#### Windows (PowerShell)
+
+```bash
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+#### Windows (CMD)
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate.bat
+```
+
+#### macOS / Linux
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+You should see `(.venv)` in your terminal.
+
+---
+
+### 2. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
@@ -92,31 +80,59 @@ pip install -r requirements.txt
 
 ---
 
-### 2. Generate Synthetic Request Data
+### 3. Configure OpenAI API Key
 
-This creates a realistic multi-day request log used by the Context Engine:
+This project uses the OpenAI API for:
 
-```bash
-python generate_requests.py
+* query intent classification
+* evidence-backed natural language responses
+
+Create a `.env` file in the project root:
+
+```env
+OPENAI_API_KEY=your_openai_key_here
+ROUTER_LLM_MODEL=gpt-4o-mini
 ```
 
-The output is written to:
+Notes:
+
+* `ROUTER_LLM_MODEL` is optional and defaults to `gpt-4o-mini`
+* `.env` must **not** be committed (ignored by `.gitignore`)
+
+---
+
+## Generate Synthetic Data
+
+The Context Engine reads request history from:
 
 ```
 app/data/mock_requests.csv
 ```
 
+Generate it using:
+
+```bash
+python generate_requests.py
+```
+
+This creates **10,000 realistic requests** across ~5 days with:
+
+* multiple user tiers and SLAs
+* diverse task types
+* latency and failure modeling
+* intentional quality degradation for investigation queries
+
 ---
 
-### 3. Start the Context API
+## Run the API
 
-Run the FastAPI service:
+Start the FastAPI server:
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-The API will be available at:
+The service will be available at:
 
 ```
 http://localhost:8000
@@ -124,34 +140,111 @@ http://localhost:8000
 
 ---
 
-### 4. Query the Context Layer
+## Using Swagger / OpenAPI UI
 
-Example query:
+FastAPI automatically exposes an interactive Swagger UI.
+
+### Open Swagger UI
+
+Once the server is running, open your browser and go to:
+
+```
+http://localhost:8000/docs
+```
+
+---
+
+### How to Submit a Query via Swagger
+
+1. Expand the endpoint:
+
+   ```
+   POST /v1/context/query
+   ```
+
+2. Click **“Try it out”**
+
+3. Enter request payload in the body field:
+
+```json
+{
+  "user_id": "operator_1",
+  "query": "Why did quality drop for reasoning tasks two days ago?"
+}
+```
+
+4. Click **Execute**
+
+5. View:
+
+   * the generated response
+   * returned natural-language explanation
+   * HTTP status and latency
+
+Swagger UI is the recommended way to explore the Context Layer interactively without using curl.
+
+---
+
+## Querying via cURL (Optional)
 
 ```bash
 curl -X POST http://localhost:8000/v1/context/query \
   -H "Content-Type: application/json" \
   -d '{
     "user_id": "operator_1",
-    "query": "Why did quality drop for reasoning tasks two days ago?"
+    "query": "What will traffic look like in the next hour?"
   }'
 ```
 
-The response will be a natural-language answer grounded strictly in system evidence.
+---
+
+## How It Works (High-Level)
+
+* `ContextEngine` loads:
+
+  * model snapshot (`model_state.json`)
+  * historical request log (`mock_requests.csv`)
+* An LLM classifies query intent into:
+
+  * `route`, `forecast`, `quality_issue`, or `models`
+* Deterministic logic assembles evidence:
+
+  * viability checks + stratified Top-N routing
+  * historical quality comparison vs baseline
+  * traffic forecast using rolling windows
+* The LLM produces a natural-language answer using **only the provided evidence**
 
 ---
 
-## Notes
+## Notes on Local Files
 
-* This prototype uses **offline synthetic data** to demonstrate behavior.
-* There is no persistent state store or streaming ingestion.
-* The system is designed to be extended with real telemetry, caching layers, and decision tracing.
+* `.env` and `.venv/` should remain local
+* `mock_requests.csv` is generated and can be regenerated at any time
+
+Recommended `.gitignore`:
+
+```gitignore
+.env
+.venv/
+__pycache__/
+*.pyc
+```
+
+---
+
+## Limitations
+
+This prototype intentionally omits:
+
+* real-time streaming ingestion
+* persistent state stores (Redis, ClickHouse)
+* async quality pipelines
+* operator dashboards
 
 ---
 
 ## Commit History
 
-This repository reflects a completed prototype submitted as a single commit due to time constraints. Design intent, trade-offs, and execution details are conveyed through the implementation and documentation.
+This repository reflects a completed prototype submitted as a single commit due to time constraints. Design intent and trade-offs are communicated through code structure and documentation.
 
 ---
-
